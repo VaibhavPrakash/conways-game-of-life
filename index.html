@@ -1,15 +1,73 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Conway's Game of Life</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <div id="grid-container"></div>
-  <button id="startButton">Start</button>
-  <button id="stopButton">Stop</button>
-  <script src="main.js"></script>
-</body>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Conway's Game of Life</title>
+        <link rel="stylesheet" href="styles.css" />
+    </head>
+    <body>
+        <div id="content">
+            <div id="controls">
+                <button id="startButton">Start</button>
+                <button id="stopButton">Stop</button>
+                <button id="nextStepButton">Next Step</button>
+                <button id="resetButton">Reset</button>
+                <p>Generation: <span id="generationCount">0</span></p>
+                <p>Active Cells: <span id="activeCellsCount">0</span></p>
+            </div>
+            <div id="grid-container"></div>
+            <div id="info">
+                <h2>What is this?</h2>
+                <p>
+                    Conway's Game of Life is a cellular automation invented by
+                    mathematician John Conway. It's a zero-player game, meaning
+                    that its evolution is determined by its initial state,
+                    requiring no further input. The game consists of a grid of
+                    cells, each of which can be alive or dead, and they evolve
+                    through generations following a set of rules.
+                </p>
+                <h2>How to Play</h2>
+                <p>
+                    You can interact with the Game of Life through the following
+                    controls:
+                </p>
+                <ul>
+                    <li>
+                        <strong>Start</strong>: Begins the simulation of generations.
+                    </li>
+                    <li><strong>Stop</strong>: Pauses the simulation.</li>
+                    <li>
+                        <strong>Next Step</strong>: Advances the grid to the next
+                        generation.
+                    </li>
+                    <li>
+                        <strong>Reset</strong>: Resets the grid to a new random
+                        pattern.
+                    </li>
+                </ul>
+                <h2>Rules of the Cells</h2>
+                <p>
+                    The evolution of the cells is determined by the following
+                    rules:
+                </p>
+                <ol>
+                    <li>
+                        <strong>Birth</strong>: A dead cell with exactly
+                        <em>3</em> live neighbors becomes a live cell.
+                    </li>
+                    <li>
+                        <strong>Survival</strong>: A live cell with
+                        <em>2</em> or <em>3</em> live neighbors stays alive.
+                    </li>
+                    <li>
+                        <strong>Death</strong>: A live cell with fewer than
+                        <em>2</em> or more than <em>3</em> live neighbors dies.
+                    </li>
+                </ol>
+            </div>
+        </div>
+
+        <script src="app.js"></script>
+    </body>
 </html>

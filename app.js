@@ -1,12 +1,47 @@
-import { patternsJson } from "./patterns.js";
+const patternsJson = {
+    patterns: [
+        {
+            name: "Blinker",
+            pattern: [
+                [false, true, false],
+                [false, true, false],
+                [false, true, false],
+            ],
+        },
+        {
+            name: "Glider",
+            pattern: [
+                [false, true, false],
+                [false, false, true],
+                [true, true, true],
+            ],
+        },
+        {
+            name: "Toad",
+            pattern: [
+                [false, true, true, true],
+                [true, true, true, false],
+            ],
+        },
+        {
+            name: "Beacon",
+            pattern: [
+                [true, true, false, false],
+                [true, true, false, false],
+                [false, false, true, true],
+                [false, false, true, true],
+            ],
+        },
+    ],
+};
 
 let generationCount = 0;
-let patternName = "";
+
 
 document.addEventListener("DOMContentLoaded", () => {
     const size = 20;
     let grid = createGrid(size);
-    let interval: number | NodeJS.Timeout;
+    let interval;
     draw(grid);
     let activeCellsCount = 0;
 
@@ -14,56 +49,54 @@ document.addEventListener("DOMContentLoaded", () => {
         interval = setInterval(() => {
             grid = nextGeneration(grid);
             activeCellsCount = grid.flat().filter((cell) => cell).length;
-            document.getElementById("activeCellsCount")!.innerText =
+            document.getElementById("activeCellsCount").innerText =
                 activeCellsCount.toString();
             generationCount++;
-            document.getElementById("generationCount")!.innerText =
+            document.getElementById("generationCount").innerText =
                 generationCount.toString();
             draw(grid);
         }, 300);
     });
 
     document.getElementById("stopButton")?.addEventListener("click", () => {
-        clearInterval(interval as any);
+        clearInterval(interval);
     });
 
     document.getElementById("nextStepButton")?.addEventListener("click", () => {
         grid = nextGeneration(grid);
         activeCellsCount = grid.flat().filter((cell) => cell).length;
-        document.getElementById("activeCellsCount")!.innerText =
+        document.getElementById("activeCellsCount").innerText =
             activeCellsCount.toString();
         generationCount++;
-        document.getElementById("generationCount")!.innerText =
+        document.getElementById("generationCount").innerText =
             generationCount.toString();
         draw(grid);
     });
 
     document.getElementById("resetButton")?.addEventListener("click", () => {
+        grid = createGrid(size);
         draw(grid);
     });
 
     draw(grid);
 });
 
-function createGrid(size: number): boolean[][] {
-    const grid: boolean[][] = [];
+
+function createGrid(size) {
+    const grid = [];
     const patterns = patternsJson.patterns;
 
-    // Create empty grid
     for (let i = 0; i < size; i++) {
-        const row: boolean[] = [];
+        const row = [];
         for (let j = 0; j < size; j++) {
             row.push(false);
         }
         grid.push(row);
     }
 
-    // Randomly select a pattern
     const patternObj = patterns[Math.floor(Math.random() * patterns.length)];
-    const pattern = patternObj.pattern; // Extract the pattern from the selected object
-    patternName = patternObj.name;
+    const pattern = patternObj.pattern;
 
-    // Apply pattern to grid at a random position
     const startX = Math.floor(Math.random() * (size - pattern.length));
     const startY = Math.floor(Math.random() * (size - pattern[0].length));
     for (let i = 0; i < pattern.length; i++) {
@@ -75,7 +108,7 @@ function createGrid(size: number): boolean[][] {
     return grid;
 }
 
-function nextGeneration(grid: boolean[][]): boolean[][] {
+function nextGeneration(grid) {
     const size = grid.length;
     const newGrid = createGrid(size);
 
@@ -93,7 +126,7 @@ function nextGeneration(grid: boolean[][]): boolean[][] {
     return newGrid;
 }
 
-function countNeighbors(grid: boolean[][], x: number, y: number): number {
+function countNeighbors(grid, x, y) {
     let count = 0;
     for (let i = -1; i <= 1; i++) {
         for (let j = -1; j <= 1; j++) {
@@ -106,8 +139,8 @@ function countNeighbors(grid: boolean[][], x: number, y: number): number {
     return count;
 }
 
-function draw(grid: boolean[][]): void {
-    const container = document.getElementById("grid-container")!;
+function draw(grid) {
+    const container = document.getElementById("grid-container");
     container.innerHTML = "";
 
     let activeCellsCount = 0;
@@ -124,9 +157,8 @@ function draw(grid: boolean[][]): void {
         });
     });
 
-    document.getElementById("activeCellsCount")!.innerText =
+    document.getElementById("activeCellsCount").innerText =
         activeCellsCount.toString();
-    document.getElementById("generationCount")!.innerText =
+    document.getElementById("generationCount").innerText =
         generationCount.toString();
-    document.getElementById("patternName")!.innerText = patternName.toString();
 }
