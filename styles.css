@@ -1,0 +1,19 @@
+#grid-container {
+    width: 400px;
+    height: 400px;
+    display: grid;
+    grid-template-columns: repeat(20, 20px);
+    grid-gap: 1px;
+  }
+  
+  .cell {
+    width: 20px;
+    height: 20px;
+    background-color: white;
+    border: 1px solid black;
+  }
+  
+  .cell.alive {
+    background-color: black;
+  }
+  
