@@ -9,8 +9,8 @@ Conway's Game of Life is a cellular automaton invented by mathematician John Con
 Follow these steps to clone the GitHub repository and run the game on your machine:
 
 1. Open your terminal or command prompt.
-2. Clone the repository using the command: `git clone https://github.com/yourusername/game-of-life.git`
-3. Navigate to the directory: `cd game-of-life`
+2. Clone the repository using the command: `git clone https://github.com/VaibhavPrakash/conways-game-of-life.git`
+3. Navigate to the directory: `cd conways-game-of-life`
 4. Install dependencies (if required): `npm install`
 5. Start the server using the command: `npm start`
 6. Open your browser and navigate to `http://localhost:3000` (or the URL provided in the terminal) to view the game.
