@@ -109,6 +109,9 @@ func buildL1Headers(privateKey *ecdsa.PrivateKey, address common.Address) (http.
 		return nil, fmt.Errorf("sign EIP-712 digest: %w", err)
 	}
 
+	// Adjust V to Ethereum convention (add 27) — crypto.Sign returns V as 0/1.
+	sig[64] += 27
+
 	// Polymarket expects the signature as a 0x-prefixed hex string.
 	sigHex := "0x" + common.Bytes2Hex(sig)
 
@@ -172,18 +175,20 @@ func DeriveAPICredentials(ctx context.Context, privateKey *ecdsa.PrivateKey, add
 	}, nil
 }
 
-// SignL2Request builds the HMAC-signed HTTP headers required for L2 authenticated requests.
-// method should be uppercase (e.g. "GET", "POST"). path is the request path including any
-// query string (e.g. "/orders"). body is the raw request body, or empty string for requests
-// with no body.
-func (c *APICredentials) SignL2Request(method, path, body string) http.Header {
+// SignL2Request builds the HMAC-signed HTTP headers required for L2 authenticated
+// requests. address is the wallet address to include in the POLY_ADDRESS header.
+func (c *APICredentials) SignL2Request(method, path, body string, address common.Address) http.Header {
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 
 	// HMAC-SHA256 of timestamp + method + path + body, keyed by base64-decoded secret.
 	secretBytes, err := base64.StdEncoding.DecodeString(c.Secret)
 	if err != nil {
-		// Fall back to using the secret as raw bytes if it is not valid base64.
-		secretBytes = []byte(c.Secret)
+		// Try URL-safe base64 before falling back to raw bytes.
+		secretBytes, err = base64.URLEncoding.DecodeString(c.Secret)
+		if err != nil {
+			fmt.Printf("  [warning] API secret is not valid base64, using raw bytes\n")
+			secretBytes = []byte(c.Secret)
+		}
 	}
 
 	message := timestamp + method + path + body
@@ -194,7 +199,7 @@ func (c *APICredentials) SignL2Request(method, path, body string) http.Header {
 	sig := base64.StdEncoding.EncodeToString(sigBytes)
 
 	headers := http.Header{}
-	headers.Set("POLY_ADDRESS", "")       // populated by caller if needed; field is required by spec
+	headers.Set("POLY_ADDRESS", address.Hex())
 	headers.Set("POLY_SIGNATURE", sig)
 	headers.Set("POLY_TIMESTAMP", timestamp)
 	headers.Set("POLY_NONCE", "0")

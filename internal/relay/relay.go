@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -121,7 +122,11 @@ func GetStepTxData(step Step) (*TxData, string, error) {
 	if len(step.Items) == 0 {
 		return nil, "", fmt.Errorf("step %q has no items", step.ID)
 	}
-	return &step.Items[0].Data, step.RequestID, nil
+	item := step.Items[0]
+	if item.Status == "failed" || item.Status == "error" {
+		return nil, "", fmt.Errorf("step %q first item has status %q", step.ID, item.Status)
+	}
+	return &item.Data, step.RequestID, nil
 }
 
 // ParseTxDataTo returns the "to" address from TxData.
@@ -158,8 +163,8 @@ func (c *Client) PollStatus(ctx context.Context, requestID string, pollInterval 
 }
 
 func (c *Client) getStatus(ctx context.Context, requestID string) (*IntentStatus, error) {
-	url := fmt.Sprintf("%s/intents/status/v3?requestId=%s", BaseURL, requestID)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	statusURL := fmt.Sprintf("%s/intents/status/v3?requestId=%s", BaseURL, url.QueryEscape(requestID))
+	req, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
 	if err != nil {
 		return nil, err
 	}
