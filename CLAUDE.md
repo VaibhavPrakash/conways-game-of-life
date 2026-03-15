@@ -25,6 +25,7 @@ conways-game-of-life/
 ├── ARCHITECTURE.md         # Full backend architecture specification
 ├── PLAN.md                 # Polymarket latency prototype plan
 ├── suggested-changes.md    # Agreed UX improvements from architecture review
+├── trading-ux-options.md   # Bridging & trade execution options analysis
 ├── go.mod                  # Go module: github.com/VaibhavPrakash/conways-game-of-life
 ├── cmd/
 │   └── latency/
@@ -149,6 +150,18 @@ See `ARCHITECTURE.md` for the full specification.
 
 ---
 
+## Trading UX & Bridging Options (see `trading-ux-options.md`)
+
+Analysis of five options for making Polymarket trades feel as fast as Kuru
+trades. Covers bridge-per-trade, pre-funded float, platform liquidity pool,
+hybrid routing, and platform-as-broker models. Includes bridge provider
+comparison (Relay, Across, deBridge) and speed/custody/complexity trade-offs.
+
+**Current recommendation:** Option B (pre-funded float) + Option A fallback for
+MVP. Evaluate Option E (platform-as-broker) for V2.
+
+---
+
 ## Agreed UX Changes (see `suggested-changes.md`)
 
 These changes were reviewed and agreed upon. They must be incorporated when
@@ -253,14 +266,15 @@ go test ./...
 
 1. **Read `ARCHITECTURE.md` first** — it is the authoritative design document for the full backend.
 2. **Read `suggested-changes.md`** — these UX changes are agreed and must be incorporated into the full backend implementation.
-3. **Do not re-introduce** Conway's Game of Life frontend files.
-4. **Prototype vs. Production** — `internal/polymarket`, `internal/relay`, `internal/wallet`, `internal/timing` are prototype-quality. When building the full backend, refactor these into the proper `internal/venue/polymarket` package structure defined in `ARCHITECTURE.md`.
-5. **Go package boundaries** — respect the internal package structure defined in the architecture.
-6. **Database changes** require updating SQL schema files and regenerating via `sqlc generate`.
-7. **Venue abstraction** — new trading venues must implement the `venue.Venue` interface (defined in `ARCHITECTURE.md`).
-8. **Authentication** — all protected endpoints must use Privy JWT middleware; never bypass auth.
-9. **Commit all work** with descriptive messages and push to the designated branch.
-10. **EIP-712 signing** — the prototype implements raw EIP-712 signing without `go-order-utils`. When building the production venue implementation, evaluate whether to use `github.com/Polymarket/go-order-utils` or keep the current raw implementation.
+3. **Read `trading-ux-options.md`** — bridging and trade execution options for unified UX. Current recommendation is Option B (pre-funded float) for MVP.
+4. **Do not re-introduce** Conway's Game of Life frontend files.
+5. **Prototype vs. Production** — `internal/polymarket`, `internal/relay`, `internal/wallet`, `internal/timing` are prototype-quality. When building the full backend, refactor these into the proper `internal/venue/polymarket` package structure defined in `ARCHITECTURE.md`.
+6. **Go package boundaries** — respect the internal package structure defined in the architecture.
+7. **Database changes** require updating SQL schema files and regenerating via `sqlc generate`.
+8. **Venue abstraction** — new trading venues must implement the `venue.Venue` interface (defined in `ARCHITECTURE.md`).
+9. **Authentication** — all protected endpoints must use Privy JWT middleware; never bypass auth.
+10. **Commit all work** with descriptive messages and push to the designated branch.
+11. **EIP-712 signing** — the prototype implements raw EIP-712 signing without `go-order-utils`. When building the production venue implementation, evaluate whether to use `github.com/Polymarket/go-order-utils` or keep the current raw implementation.
 
 ---
 
@@ -287,3 +301,4 @@ go test ./...
 | Mar 2026 | All frontend files removed; `ARCHITECTURE.md` added |
 | Mar 2026 | `CLAUDE.md` created; UX review completed (`suggested-changes.md`) |
 | Mar 2026 | Polymarket latency prototype implemented (`PLAN.md` + code) |
+| Mar 2026 | Trading UX & bridging options analysis (`trading-ux-options.md`) |
