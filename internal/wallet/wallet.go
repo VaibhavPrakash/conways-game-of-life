@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -43,6 +44,7 @@ func init() {
 type Wallet struct {
 	PrivateKey *ecdsa.PrivateKey
 	Address    common.Address
+	clients    map[string]*ethclient.Client
 }
 
 func FromPrivateKey(hexKey string) (*Wallet, error) {
@@ -52,15 +54,35 @@ func FromPrivateKey(hexKey string) (*Wallet, error) {
 		return nil, fmt.Errorf("invalid private key: %w", err)
 	}
 	addr := crypto.PubkeyToAddress(key.PublicKey)
-	return &Wallet{PrivateKey: key, Address: addr}, nil
+	return &Wallet{PrivateKey: key, Address: addr, clients: make(map[string]*ethclient.Client)}, nil
 }
 
-func (w *Wallet) BalanceOf(ctx context.Context, rpcURL string, tokenAddr string) (*big.Int, error) {
-	client, err := ethclient.DialContext(ctx, rpcURL)
+// getClient returns a cached ethclient for the given RPC URL, creating one if needed.
+func (w *Wallet) getClient(ctx context.Context, rpcURL string) (*ethclient.Client, error) {
+	if c, ok := w.clients[rpcURL]; ok {
+		return c, nil
+	}
+	c, err := ethclient.DialContext(ctx, rpcURL)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", rpcURL, err)
 	}
-	defer client.Close()
+	w.clients[rpcURL] = c
+	return c, nil
+}
+
+// Close closes all cached ethclient connections.
+func (w *Wallet) Close() {
+	for _, c := range w.clients {
+		c.Close()
+	}
+	w.clients = make(map[string]*ethclient.Client)
+}
+
+func (w *Wallet) BalanceOf(ctx context.Context, rpcURL string, tokenAddr string) (*big.Int, error) {
+	client, err := w.getClient(ctx, rpcURL)
+	if err != nil {
+		return nil, err
+	}
 
 	data, err := erc20ABI.Pack("balanceOf", w.Address)
 	if err != nil {
@@ -84,11 +106,10 @@ func (w *Wallet) BalanceOf(ctx context.Context, rpcURL string, tokenAddr string)
 }
 
 func (w *Wallet) Allowance(ctx context.Context, rpcURL string, tokenAddr, spenderAddr string) (*big.Int, error) {
-	client, err := ethclient.DialContext(ctx, rpcURL)
+	client, err := w.getClient(ctx, rpcURL)
 	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", rpcURL, err)
+		return nil, err
 	}
-	defer client.Close()
 
 	data, err := erc20ABI.Pack("allowance", w.Address, common.HexToAddress(spenderAddr))
 	if err != nil {
@@ -112,11 +133,10 @@ func (w *Wallet) Allowance(ctx context.Context, rpcURL string, tokenAddr, spende
 }
 
 func (w *Wallet) Approve(ctx context.Context, rpcURL string, chainID int64, tokenAddr, spenderAddr string, amount *big.Int) (common.Hash, error) {
-	client, err := ethclient.DialContext(ctx, rpcURL)
+	client, err := w.getClient(ctx, rpcURL)
 	if err != nil {
-		return common.Hash{}, fmt.Errorf("dial %s: %w", rpcURL, err)
+		return common.Hash{}, err
 	}
-	defer client.Close()
 
 	data, err := erc20ABI.Pack("approve", common.HexToAddress(spenderAddr), amount)
 	if err != nil {
@@ -127,11 +147,10 @@ func (w *Wallet) Approve(ctx context.Context, rpcURL string, chainID int64, toke
 }
 
 func (w *Wallet) SendTx(ctx context.Context, rpcURL string, chainID int64, to common.Address, data []byte, value *big.Int) (common.Hash, error) {
-	client, err := ethclient.DialContext(ctx, rpcURL)
+	client, err := w.getClient(ctx, rpcURL)
 	if err != nil {
-		return common.Hash{}, fmt.Errorf("dial %s: %w", rpcURL, err)
+		return common.Hash{}, err
 	}
-	defer client.Close()
 
 	return w.sendTx(ctx, client, chainID, to, data, value)
 }
@@ -140,11 +159,6 @@ func (w *Wallet) sendTx(ctx context.Context, client *ethclient.Client, chainID i
 	nonce, err := client.PendingNonceAt(ctx, w.Address)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("get nonce: %w", err)
-	}
-
-	gasPrice, err := client.SuggestGasPrice(ctx)
-	if err != nil {
-		return common.Hash{}, fmt.Errorf("gas price: %w", err)
 	}
 
 	if value == nil {
@@ -161,8 +175,37 @@ func (w *Wallet) sendTx(ctx context.Context, client *ethclient.Client, chainID i
 		return common.Hash{}, fmt.Errorf("estimate gas: %w", err)
 	}
 
-	tx := types.NewTransaction(nonce, to, value, gasLimit, gasPrice, data)
-	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(chainID)), w.PrivateKey)
+	// Use EIP-1559 dynamic fee transaction for better gas pricing.
+	head, err := client.HeaderByNumber(ctx, nil)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("get latest header: %w", err)
+	}
+
+	gasTipCap, err := client.SuggestGasTipCap(ctx)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("suggest gas tip cap: %w", err)
+	}
+
+	// maxFeePerGas = 2 * baseFee + maxPriorityFeePerGas
+	baseFee := head.BaseFee
+	gasFeeCap := new(big.Int).Add(
+		new(big.Int).Mul(baseFee, big.NewInt(2)),
+		gasTipCap,
+	)
+
+	chainIDBig := big.NewInt(chainID)
+	tx := types.NewTx(&types.DynamicFeeTx{
+		ChainID:   chainIDBig,
+		Nonce:     nonce,
+		GasTipCap: gasTipCap,
+		GasFeeCap: gasFeeCap,
+		Gas:       gasLimit,
+		To:        &to,
+		Value:     value,
+		Data:      data,
+	})
+
+	signedTx, err := types.SignTx(tx, types.NewLondonSigner(chainIDBig), w.PrivateKey)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("sign tx: %w", err)
 	}
@@ -175,22 +218,29 @@ func (w *Wallet) sendTx(ctx context.Context, client *ethclient.Client, chainID i
 }
 
 func (w *Wallet) WaitForTx(ctx context.Context, rpcURL string, txHash common.Hash) (*types.Receipt, error) {
-	client, err := ethclient.DialContext(ctx, rpcURL)
+	client, err := w.getClient(ctx, rpcURL)
 	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", rpcURL, err)
+		return nil, err
 	}
-	defer client.Close()
 
-	// Use the built-in TransactionReceipt polling.
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	timeout := time.After(5 * time.Minute)
+
 	for {
 		receipt, err := client.TransactionReceipt(ctx, txHash)
 		if err == nil {
 			return receipt, nil
 		}
+
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		default:
+		case <-timeout:
+			return nil, fmt.Errorf("timed out after 5m waiting for tx %s", txHash.Hex())
+		case <-ticker.C:
+			// retry on next tick
 		}
 	}
 }

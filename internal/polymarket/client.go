@@ -17,7 +17,6 @@ import (
 )
 
 const (
-	CLOBURL            = "https://clob.polymarket.com"
 	CTFExchange        = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
 	NegRiskCTFExchange = "0xC5d563A36AE78145C45a50134d48A1215220f80a"
 	PolygonChainID     = 137
@@ -124,10 +123,16 @@ func (c *Client) BuildAndSignOrder(req OrderRequest) (*SignedOrder, error) {
 	salt := new(big.Int).SetBytes(saltBytes)
 
 	// --- Amounts ---
-	scale := 1e6
+	// Use big.Float throughout to avoid float64 precision loss.
+	scale := new(big.Float).SetFloat64(1e6)
+	price := new(big.Float).SetFloat64(req.Price)
+	size := new(big.Float).SetFloat64(req.Size)
+
 	var makerAmount, takerAmount *big.Int
-	usdcAmount := new(big.Float).SetFloat64(req.Price * req.Size * scale)
-	shareAmount := new(big.Float).SetFloat64(req.Size * scale)
+	// usdcRaw = price * size * 1e6
+	usdcAmount := new(big.Float).Mul(new(big.Float).Mul(price, size), scale)
+	// shareRaw = size * 1e6
+	shareAmount := new(big.Float).Mul(size, scale)
 
 	usdcInt, _ := usdcAmount.Int(nil)
 	shareInt, _ := shareAmount.Int(nil)
@@ -255,11 +260,9 @@ func (c *Client) SubmitOrder(ctx context.Context, signed *SignedOrder, orderType
 	}
 
 	const path = "/order"
-	l2Headers := c.creds.SignL2Request("POST", path, string(bodyBytes))
-	// Patch in the wallet address (SignL2Request leaves POLY_ADDRESS blank).
-	l2Headers.Set("POLY_ADDRESS", c.address.Hex())
+	l2Headers := c.creds.SignL2Request("POST", path, string(bodyBytes), c.address)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, CLOBURL+path, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, clobBaseURL+path, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("create POST /order request: %w", err)
 	}
@@ -300,10 +303,9 @@ func (c *Client) SubmitOrder(ctx context.Context, signed *SignedOrder, orderType
 // GetOrderStatus fetches the current status of an order by its ID.
 func (c *Client) GetOrderStatus(ctx context.Context, orderID string) (*OrderStatus, error) {
 	path := "/data/order/" + orderID
-	l2Headers := c.creds.SignL2Request("GET", path, "")
-	l2Headers.Set("POLY_ADDRESS", c.address.Hex())
+	l2Headers := c.creds.SignL2Request("GET", path, "", c.address)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, CLOBURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clobBaseURL+path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create GET %s request: %w", path, err)
 	}

@@ -50,6 +50,14 @@ func main() {
 		log.Fatalf("error: --market-id is required")
 	}
 
+	if *priceFlag <= 0 || *priceFlag >= 1 {
+		log.Fatalf("error: --price must be between 0 (exclusive) and 1 (exclusive), got %f", *priceFlag)
+	}
+
+	if *amountFlag <= 0 {
+		log.Fatalf("error: --amount must be positive, got %f", *amountFlag)
+	}
+
 	// Parse side.
 	var orderSide polymarket.OrderSide
 	switch strings.ToLower(*sideFlag) {
@@ -87,6 +95,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("load wallet: %v", err)
 	}
+	defer w.Close()
 	fmt.Printf("\nWallet address: %s\n", w.Address.Hex())
 
 	// Relay client (stateless, reuse across runs).
@@ -228,7 +237,9 @@ func main() {
 			}
 			fmt.Printf("  Approval tx: %s — waiting for receipt...\n", approveTxHash.Hex())
 
-			_, err = w.WaitForTx(ctx, wallet.PolygonRPC, approveTxHash)
+			approvalCtx, approvalCancel := context.WithTimeout(ctx, 5*time.Minute)
+			_, err = w.WaitForTx(approvalCtx, wallet.PolygonRPC, approveTxHash)
+			approvalCancel()
 			if err != nil {
 				log.Fatalf("run %d: wait for approval tx: %v", run, err)
 			}
