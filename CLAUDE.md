@@ -4,9 +4,16 @@ This file provides guidance for AI assistants working in this repository.
 
 ## Project Overview
 
-This repository was originally a Conway's Game of Life cellular automaton simulator (frontend, TypeScript/HTML). It has since been **repurposed** as the home for a **Prediction Markets Backend** platform—a Go monolith that aggregates prediction markets from multiple venues (Kuru on Monad, Polymarket on Polygon) and exposes a unified REST API.
+This repository is the home for a **Prediction Markets Backend** platform — a Go
+monolith that aggregates prediction markets from multiple venues (Kuru on Monad,
+Polymarket on Polygon) and exposes a unified REST API.
 
-The current repository state is architecture-first: `ARCHITECTURE.md` is the single source of truth for the planned backend implementation.
+The project began as Conway's Game of Life (TypeScript/HTML), was pivoted in
+March 2026, and now contains:
+
+- A comprehensive architecture spec (`ARCHITECTURE.md`)
+- A set of agreed UX changes (`suggested-changes.md`)
+- A **working Polymarket latency prototype** (`cmd/latency/`, `internal/`)
 
 ---
 
@@ -14,18 +21,107 @@ The current repository state is architecture-first: `ARCHITECTURE.md` is the sin
 
 ```
 conways-game-of-life/
-├── CLAUDE.md           # This file — AI assistant guidance
-├── ARCHITECTURE.md     # Comprehensive backend architecture specification
-└── .gitignore          # Node.js / general dev environment ignores
+├── CLAUDE.md               # This file — AI assistant guidance
+├── ARCHITECTURE.md         # Full backend architecture specification
+├── PLAN.md                 # Polymarket latency prototype plan
+├── suggested-changes.md    # Agreed UX improvements from architecture review
+├── go.mod                  # Go module: github.com/VaibhavPrakash/conways-game-of-life
+├── cmd/
+│   └── latency/
+│       └── main.go         # CLI entrypoint for latency testing
+└── internal/
+    ├── polymarket/
+    │   ├── auth.go          # L1/L2 CLOB auth (EIP-712 + HMAC-SHA256)
+    │   └── client.go        # CLOB REST client + EIP-712 order building/signing
+    ├── relay/
+    │   └── relay.go         # Relay bridge client (quote, execute, poll)
+    ├── timing/
+    │   └── timing.go        # Stopwatch + aggregate stats for latency measurement
+    └── wallet/
+        └── wallet.go        # Ethereum key management, tx signing, ERC-20 helpers
 ```
 
-> **Note:** All original Conway's Game of Life source files (TypeScript, HTML, CSS, package.json) were removed in commit `cd4fe42` as part of the pivot to backend architecture.
+> **Note:** All original Conway's Game of Life source files were removed in
+> commit `cd4fe42`. Do not re-introduce them.
 
 ---
 
-## Architecture Summary
+## What Exists Today vs. What Is Planned
 
-See `ARCHITECTURE.md` for the full specification. Key points:
+### Implemented (Latency Prototype)
+
+The latency prototype is a **throwaway CLI tool** — no database, no HTTP server,
+no auth middleware. It measures end-to-end latency for:
+`Monad USDC → Relay bridge → Polygon USDC.e → Polymarket CLOB order`
+
+**`internal/wallet`** — Ethereum wallet utilities
+- `FromPrivateKey(hex)` — load wallet from private key
+- `BalanceOf`, `Allowance`, `Approve` — ERC-20 helpers
+- `SendTx`, `WaitForTx` — transaction submission and receipt polling
+- `FormatUSDC` / `ParseUSDC` — 6-decimal USDC conversion helpers
+- Constants: `MonadChainID=143`, `PolygonChainID=137`, RPC URLs, token addresses
+
+**`internal/relay`** — Relay bridge client (`https://api.relay.link`)
+- `NewClient(apiKey)` — create client
+- `GetQuote(ctx, QuoteRequest)` — POST `/quote/v2`
+- `GetStepTxData(step)` — extract tx data from quote step
+- `PollStatus(ctx, requestID, interval, timeout)` — poll `/intents/status/v3`
+
+**`internal/polymarket/auth.go`** — Polymarket CLOB authentication
+- `DeriveAPICredentials(ctx, privateKey, address)` — L1 EIP-712 auth → fetch API credentials
+- `(*APICredentials).SignL2Request(method, path, body)` — HMAC-SHA256 L2 request signing
+
+**`internal/polymarket/client.go`** — Polymarket CLOB REST client
+- `NewClient(creds, privateKey, address)` — create client
+- `BuildAndSignOrder(OrderRequest)` — EIP-712 order construction + signing (no external deps)
+- `SubmitOrder(ctx, signedOrder, orderType)` — POST `/order`
+- `GetOrderStatus(ctx, orderID)` — GET `/data/order/:id`
+- `PollOrderFill(ctx, orderID, interval, timeout)` — poll until filled/cancelled
+
+**`internal/timing`** — Latency measurement utilities
+- `New()` / `Start(label)` / `Stop()` — stopwatch per step
+- `PrintTable(runLabel)` — render ASCII timing table
+- `NewSummary()` / `Summary.Add(tracker)` / `Summary.Print()` — multi-run stats (min/avg/p50/p95/max)
+
+**`cmd/latency/main.go`** — CLI entrypoint
+```
+Flags:
+  --private-key    hex private key (or PRIVATE_KEY env var)
+  --market-id      Polymarket token ID (required)
+  --amount         USDC amount to trade (default 1.0)
+  --side           buy|sell (default buy)
+  --price          limit price (default 0.50)
+  --runs           number of iterations (default 1)
+  --skip-bridge    skip bridge if USDC.e already on Polygon
+  --dry-run        measure everything but skip final order submission
+  --relay-api-key  optional Relay API key (or RELAY_API_KEY env var)
+```
+
+### Not Yet Implemented (From ARCHITECTURE.md)
+
+The full backend (HTTP server, database, auth middleware, background workers)
+does not exist yet. The planned packages are:
+
+| Package | Purpose |
+|---------|---------|
+| `internal/api` | HTTP handlers and routing (gin/chi) |
+| `internal/auth` | Privy JWT verification middleware |
+| `internal/market` | Market listing, aggregation, caching |
+| `internal/trade` | Trade orchestration and venue routing |
+| `internal/portfolio` | Positions, PnL, activity feed |
+| `internal/bridge` | Bridge abstraction + provider impls |
+| `internal/venue/kuru` | Kuru order book client (abigen bindings) |
+| `internal/venue/polymarket` | Polymarket CLOB (refactor from prototype) |
+| `internal/user` | User profile, wallet associations |
+| `internal/sync` | Background market/position sync workers |
+| `internal/db` | sqlc-generated database layer |
+| `pkg/models` | Shared domain types |
+
+---
+
+## Key Architecture Summary
+
+See `ARCHITECTURE.md` for the full specification.
 
 | Aspect | Detail |
 |--------|--------|
@@ -33,106 +129,152 @@ See `ARCHITECTURE.md` for the full specification. Key points:
 | **Database** | PostgreSQL (via `sqlc` + `pgx`) |
 | **Router** | `gin` or `chi` |
 | **Auth** | Privy JWT verification middleware |
-| **Blockchain** | Monad (USDC), Polygon (Polymarket) |
-| **Venues** | Kuru (Monad) + Polymarket (Polygon) |
+| **Blockchain** | Monad (USDC, chain 143), Polygon (Polymarket, chain 137) |
+| **Venues** | Kuru (Monad) + Polymarket (Polygon CLOB) |
 
-### Internal Go Packages
+### Key Constants (Chain + Contract Addresses)
 
-The architecture defines these internal packages:
-
-- `api` — HTTP handlers and routing
-- `auth` — Privy JWT middleware
-- `market` — Market listing and metadata
-- `trade` — Order placement and venue abstraction
-- `portfolio` — User positions and PnL
-- `bridge` — Cross-chain bridge abstraction (multi-provider)
-- `venue` — Venue interface + Kuru/Polymarket implementations
-- `user` — User profile management
-- `sync` — Background market/position sync workers
-- `db` — sqlc-generated database layer
-
-### Key Data Flows
-
-1. **Browse Markets** — Sync worker fetches from Kuru + Polymarket → stored in DB → served via `/markets` endpoint
-2. **Place Trade** — User calls `/trade` → backend routes to appropriate venue → on-chain tx submitted → position synced
-3. **Portfolio View** — User calls `/portfolio` → positions + PnL aggregated from DB
-
-### Background Workers
-
-- Market sync (periodic fetch from venues)
-- Position sync (reconcile on-chain state)
-- Bridge monitor (track cross-chain transactions)
-- PnL snapshots
-- Market resolution
+| Constant | Value |
+|----------|-------|
+| Monad Chain ID | `143` |
+| Monad RPC | `https://rpc.monad.xyz` |
+| Polygon Chain ID | `137` |
+| Polygon RPC | `https://polygon-rpc.com` |
+| USDC on Monad | `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` |
+| USDC.e on Polygon | `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` |
+| CTF Exchange | `0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E` |
+| Neg Risk CTF Exchange | `0xC5d563A36AE78145C45a50134d48A1215220f80a` |
+| Relay API | `https://api.relay.link` |
+| Polymarket CLOB API | `https://clob.polymarket.com` |
 
 ---
 
-## Development Workflow
+## Agreed UX Changes (see `suggested-changes.md`)
 
-### Current State
+These changes were reviewed and agreed upon. They must be incorporated when
+building the full backend:
 
-The repository contains only documentation—no Go code exists yet. When implementation begins:
+1. **Real-time order status** — Add `GET /api/v1/orders/:id/stream` (SSE/WebSocket) instead of client polling
+2. **Eager Gnosis Safe provisioning** — Deploy Safe at login/onboarding, not on first trade
+3. **Trigger-based position sync** — Sync immediately after a fill; don't wait for the 60s background tick
+4. **Single unified balance** — `GET /api/v1/user/balances` returns one aggregated total (Monad + Polygon + in-transit)
+5. **On-demand market refresh** — `POST /api/v1/markets/:id/refresh` + subscribe to Polymarket WebSocket per viewed market
+6. **PostgreSQL full-text search** — `tsvector` GIN index on `markets.question` + `markets.description`
+7. **Cached balances with async refresh** — Return cached balance immediately; trigger async RPC update in background
 
-1. Initialize the Go module: `go mod init github.com/VaibhavPrakash/conways-game-of-life`
-2. Set up directory structure per `ARCHITECTURE.md`
-3. Generate DB layer: `sqlc generate`
-4. Generate contract bindings: `abigen`
+---
 
-### Git Conventions
+## Development Workflows
+
+### Running the Latency Prototype
+
+```bash
+# Build
+go build ./cmd/latency/
+
+# Dry-run (skip bridge if USDC.e already on Polygon, no real order submitted)
+PRIVATE_KEY=0x... ./latency \
+  --market-id <polymarket-token-id> \
+  --amount 1.0 \
+  --price 0.50 \
+  --skip-bridge \
+  --dry-run
+
+# Full pipeline (requires real USDC on Monad)
+PRIVATE_KEY=0x... RELAY_API_KEY=... ./latency \
+  --market-id <polymarket-token-id> \
+  --amount 1.0 \
+  --price 0.50 \
+  --runs 3
+```
+
+### Starting the Full Backend (Not Yet Implemented)
+
+When implementation begins:
+
+```bash
+# Go module already initialized (go.mod exists)
+
+# Add dependencies as needed
+go get github.com/gin-gonic/gin
+go get github.com/jackc/pgx/v5
+# etc.
+
+# Generate DB layer
+sqlc generate
+
+# Generate Kuru contract bindings
+abigen --abi kuru.abi --pkg kuru --out internal/venue/kuru/bindings.go
+
+# Run server
+go run ./cmd/server/
+```
+
+### Tests
+
+No tests exist yet. When added, run with:
+```bash
+go test ./...
+```
+
+---
+
+## Git Conventions
 
 - **Branch naming**: `claude/<description>-<session-id>` for AI-driven work
-- **Commit signing**: All commits are SSH-signed (configured via `commit.gpgsign=true`)
+- **Commit signing**: SSH-signed (configured via `commit.gpgsign=true`)
 - **Remote**: `origin` → `http://local_proxy@127.0.0.1:35169/git/VaibhavPrakash/conways-game-of-life`
 - **Push**: Always use `git push -u origin <branch-name>`
+- **No force pushes** to `main` or `master`
 
 ### Branches
 
 | Branch | Purpose |
 |--------|---------|
-| `master` | Historical Conway's Game of Life code |
 | `main` (remote) | Current default branch |
-| `claude/add-claude-documentation-1tIbb` | Current AI documentation work |
+| `master` | Historical Conway's Game of Life code |
+| `claude/add-claude-documentation-RpiRg` | Current AI documentation work |
 
----
+### Commit History (Notable)
 
-## Planned Tech Stack
-
-When implementing the Go backend, use these tools as specified in `ARCHITECTURE.md`:
-
-| Tool | Purpose |
-|------|---------|
-| `gin` / `chi` | HTTP routing |
-| `pgx` + `sqlc` | PostgreSQL access with type-safe generated queries |
-| `abigen` | Go bindings for Solidity contracts |
-| `go-order-utils` (Polymarket) | Polymarket order signing |
-| Privy SDK / JWT libraries | Auth token verification |
-| WebSocket client | Real-time Kuru order book |
-
----
-
-## Testing Plan
-
-From `ARCHITECTURE.md` (no tests exist yet):
-
-1. **Unit tests** — Each venue implementation mocked
-2. **Integration tests** — Polymarket testnet CLOB + Monad testnet
-3. **Manual E2E** — Full user flows
-4. **Load tests** — Market sync workers under load
-
-When tests are added, run them with: `go test ./...`
+| Commit | Description |
+|--------|-------------|
+| `45ff515` | Merge: Polymarket latency prototype (complete) |
+| `8e18ba1` | Add CLI entrypoint for latency testing prototype |
+| `fde0544` | Add core packages: wallet, relay, polymarket, timing |
+| `f2d3688` | Add suggested UX changes doc from architecture review |
+| `266715a` | Add CLAUDE.md with comprehensive codebase documentation |
+| `cd4fe42` | Remove Conway's Game of Life files; pivot to backend |
+| `eb96e7d` | Add prediction market backend architecture plan |
 
 ---
 
 ## Key Conventions for AI Assistants
 
-1. **Read `ARCHITECTURE.md` first** before making any implementation decisions — it is the authoritative design document.
-2. **Do not re-introduce** Conway's Game of Life frontend files; those were intentionally removed.
-3. **Go package boundaries** — respect the internal package structure defined in the architecture.
-4. **Database changes** require updating SQL schema files and regenerating via `sqlc generate`.
-5. **Venue abstraction** — new trading venues must implement the `venue.Venue` interface.
-6. **Authentication** — all protected endpoints must use Privy JWT middleware; never bypass auth.
-7. **Commit all work** with descriptive messages and push to the designated branch.
-8. **No force pushes** to `main` or `master`.
+1. **Read `ARCHITECTURE.md` first** — it is the authoritative design document for the full backend.
+2. **Read `suggested-changes.md`** — these UX changes are agreed and must be incorporated into the full backend implementation.
+3. **Do not re-introduce** Conway's Game of Life frontend files.
+4. **Prototype vs. Production** — `internal/polymarket`, `internal/relay`, `internal/wallet`, `internal/timing` are prototype-quality. When building the full backend, refactor these into the proper `internal/venue/polymarket` package structure defined in `ARCHITECTURE.md`.
+5. **Go package boundaries** — respect the internal package structure defined in the architecture.
+6. **Database changes** require updating SQL schema files and regenerating via `sqlc generate`.
+7. **Venue abstraction** — new trading venues must implement the `venue.Venue` interface (defined in `ARCHITECTURE.md`).
+8. **Authentication** — all protected endpoints must use Privy JWT middleware; never bypass auth.
+9. **Commit all work** with descriptive messages and push to the designated branch.
+10. **EIP-712 signing** — the prototype implements raw EIP-712 signing without `go-order-utils`. When building the production venue implementation, evaluate whether to use `github.com/Polymarket/go-order-utils` or keep the current raw implementation.
+
+---
+
+## Planned Tech Stack
+
+| Tool | Purpose |
+|------|---------|
+| `gin` / `chi` | HTTP routing |
+| `pgx` + `sqlc` | PostgreSQL access with type-safe generated queries |
+| `abigen` | Go bindings for Kuru Solidity contracts (no Go SDK exists) |
+| `go-order-utils` (Polymarket) | Polymarket EIP-712 order signing (evaluate vs. current raw impl) |
+| Privy SDK / JWT libraries | Auth token verification |
+| WebSocket client | Real-time Polymarket CLOB price updates |
+| Gnosis Safe SDK | Per-user Polygon proxy wallet deployment |
 
 ---
 
@@ -140,7 +282,8 @@ When tests are added, run them with: `go test ./...`
 
 | Date | Event |
 |------|-------|
-| Aug 2023 | Initial Conway's Game of Life implementation (TypeScript + HTML5) |
+| Aug 2023 | Initial Conway's Game of Life (TypeScript + HTML5) |
 | Mar 2026 | Repository pivoted to prediction markets backend |
 | Mar 2026 | All frontend files removed; `ARCHITECTURE.md` added |
-| Mar 2026 | `CLAUDE.md` created (this file) |
+| Mar 2026 | `CLAUDE.md` created; UX review completed (`suggested-changes.md`) |
+| Mar 2026 | Polymarket latency prototype implemented (`PLAN.md` + code) |
